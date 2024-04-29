@@ -1,22 +1,21 @@
 extern crate raw_window_handle;
 
 use self::raw_window_handle::{
-    HasRawDisplayHandle, HasRawWindowHandle, RawDisplayHandle, RawWindowHandle,
+    HasRawDisplayHandle, HasRawWindowHandle, RawDisplayHandle, RawWindowHandle, HandleError
 };
 use crate::{sys::SDL_Window, video::Window};
 
 unsafe impl HasRawWindowHandle for Window {
     #[doc(alias = "SDL_GetVersion")]
-    fn raw_window_handle(&self) -> RawWindowHandle {
+    fn raw_window_handle(&self) -> Result<RawWindowHandle, HandleError> {
         use self::SDL_SYSWM_TYPE::*;
 
         // Check if running on web before continuing,
         // since SDL_GetWindowWMInfo will fail on emscripten
         if cfg!(target_os = "emscripten") {
             use self::raw_window_handle::WebWindowHandle;
-            let mut handle = WebWindowHandle::empty();
-            handle.id = 1;
-            return RawWindowHandle::Web(handle);
+            let handle = WebWindowHandle::new(1);
+            return Ok(RawWindowHandle::Web(handle));
         }
 
         let mut wm_info: SDL_SysWMinfo = unsafe { std::mem::zeroed() };
@@ -30,14 +29,12 @@ unsafe impl HasRawWindowHandle for Window {
             }
         }
 
-        match wm_info.subsystem {
+        Ok(match wm_info.subsystem {
             #[cfg(target_os = "windows")]
             SDL_SYSWM_WINDOWS => {
                 use self::raw_window_handle::Win32WindowHandle;
 
-                let mut handle = Win32WindowHandle::empty();
-                handle.hwnd = unsafe { wm_info.info.win }.window as *mut libc::c_void;
-                handle.hinstance = unsafe { wm_info.info.win }.hinstance as *mut libc::c_void;
+                let handle = Win32WindowHandle::new(std::num::NonZeroIsize::new(unsafe { wm_info.info.win }.window as isize).unwrap());
 
                 RawWindowHandle::Win32(handle)
             }
@@ -45,8 +42,9 @@ unsafe impl HasRawWindowHandle for Window {
             SDL_SYSWM_WINRT => {
                 use self::raw_window_handle::WinRtWindowHandle;
 
-                let mut handle = WinRtWindowHandle::empty();
-                handle.core_window = unsafe { wm_info.info.winrt }.core_window;
+                let handle = WinRtWindowHandle::new(
+                    std::ptr::NonNull::<libc::c_void>::new(unsafe { wm_info.info.winrt }.core_window).unwrap()
+                );
 
                 RawWindowHandle::WinRt(handle)
             }
@@ -123,21 +121,21 @@ unsafe impl HasRawWindowHandle for Window {
                 };
                 panic!("{} window system is not supported, please file issue with raw-window-handle: https://github.com/rust-windowing/raw-window-handle/issues/new", window_system);
             }
-        }
+        })
     }
 }
 
 unsafe impl HasRawDisplayHandle for Window {
     #[doc(alias = "SDL_GetVersion")]
-    fn raw_display_handle(&self) -> RawDisplayHandle {
+    fn raw_display_handle(&self) -> Result<RawDisplayHandle, HandleError> {
         use self::SDL_SYSWM_TYPE::*;
 
         // Check if running on web before continuing,
         // since SDL_GetWindowWMInfo will fail on emscripten
         if cfg!(target_os = "emscripten") {
             use self::raw_window_handle::WebDisplayHandle;
-            let handle = WebDisplayHandle::empty();
-            return RawDisplayHandle::Web(handle);
+            let handle = WebDisplayHandle::new();
+            return Ok(RawDisplayHandle::Web(handle));
         }
 
         let mut wm_info: SDL_SysWMinfo = unsafe { std::mem::zeroed() };
@@ -151,12 +149,12 @@ unsafe impl HasRawDisplayHandle for Window {
             }
         }
 
-        match wm_info.subsystem {
+        Ok(match wm_info.subsystem {
             #[cfg(target_os = "windows")]
             SDL_SYSWM_WINDOWS | SDL_SYSWM_WINRT => {
                 use self::raw_window_handle::WindowsDisplayHandle;
 
-                let handle = WindowsDisplayHandle::empty();
+                let handle = WindowsDisplayHandle::new();
 
                 RawDisplayHandle::Windows(handle)
             }
@@ -221,7 +219,7 @@ unsafe impl HasRawDisplayHandle for Window {
                 };
                 panic!("{} window system is not supported, please file issue with raw-window-handle: https://github.com/rust-windowing/raw-window-handle/issues/new", window_system);
             }
-        }
+        })
     }
 }
 
